@@ -1,99 +1,67 @@
-using Claims.Auditing;
+using Application.Commands;
+using Application.Models.Dto;
+using Application.Queries;
+using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using MongoDB.EntityFrameworkCore.Extensions;
+using Swashbuckle.AspNetCore.Annotations;
 
 
 namespace Claims.Controllers
 {
     [ApiController]
-    [Route("[controller]")]
+    [Route("v1/[controller]")]
     public class ClaimsController : ControllerBase
     {
-        private readonly ILogger<ClaimsController> _logger;
-        private readonly ClaimsContext _claimsContext;
-        private readonly Auditer _auditer;
+        private readonly IMediator _mediator;
 
-        public ClaimsController(ILogger<ClaimsController> logger, ClaimsContext claimsContext, AuditContext auditContext)
+        public ClaimsController(IMediator mediator)
         {
-            _logger = logger;
-            _claimsContext = claimsContext;
-            _auditer = new Auditer(auditContext);
+            _mediator = mediator;
         }
 
         [HttpGet]
-        public async Task<IEnumerable<Claim>> GetAsync()
+        [SwaggerOperation(Summary = "Get all Claims")]
+        [ProducesResponseType(typeof(List<ClaimDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<IEnumerable<ClaimDto>>> GetAsync()
         {
-            return await _claimsContext.GetClaimsAsync();
-        }
-
-        [HttpPost]
-        public async Task<ActionResult> CreateAsync(Claim claim)
-        {
-            claim.Id = Guid.NewGuid().ToString();
-            await _claimsContext.AddItemAsync(claim);
-            _auditer.AuditClaim(claim.Id, "POST");
-            return Ok(claim);
-        }
-
-        [HttpDelete("{id}")]
-        public async Task DeleteAsync(string id)
-        {
-            _auditer.AuditClaim(id, "DELETE");
-            await _claimsContext.DeleteItemAsync(id);
+            var results = await _mediator.Send(new GetClaimsQuery());
+            return Ok(results);
         }
 
         [HttpGet("{id}")]
-        public async Task<Claim> GetAsync(string id)
+        [SwaggerOperation(Summary = "Get Claims by id")]
+        [ProducesResponseType(typeof(ClaimDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> GetAsync(string id)
         {
-            return await _claimsContext.GetClaimAsync(id);
-        }
-    }
-
-    public class ClaimsContext : DbContext
-    {
-
-        private DbSet<Claim> Claims { get; init; }
-        public DbSet<Cover>  Covers { get; init; }
-
-        public ClaimsContext(DbContextOptions options)
-            : base(options)
-        {
+            var result = await _mediator.Send(new GetClaimQuery(id));
+            return result is not null ? Ok(result): NotFound();
         }
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        [HttpPost]
+        [SwaggerOperation(Summary = "Create new Claim")]
+        [ProducesResponseType(typeof(ClaimDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ClaimDto>> CreateAsync(CreateClaimCommand command)
         {
-            base.OnModelCreating(modelBuilder);
-            modelBuilder.Entity<Claim>().ToCollection("claims");
-            modelBuilder.Entity<Cover>().ToCollection("covers");
+            var result = await _mediator.Send(command);
+            return Ok(result);
         }
 
-        public async Task<IEnumerable<Claim>> GetClaimsAsync()
+        [HttpDelete("{id}")]
+        [SwaggerOperation(Summary = "Delete Claim by id")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult> DeleteAsync(string id)
         {
-            return await Claims.ToListAsync();
-        }
-
-        public async Task<Claim> GetClaimAsync(string id)
-        {
-            return await Claims
-                .Where(claim => claim.Id == id)
-                .SingleOrDefaultAsync();
-        }
-
-        public async Task AddItemAsync(Claim item)
-        {
-            Claims.Add(item);
-            await SaveChangesAsync();
-        }
-
-        public async Task DeleteItemAsync(string id)
-        {
-            var claim = await GetClaimAsync(id);
-            if (claim is not null)
-            {
-                Claims.Remove(claim);
-                await SaveChangesAsync();
-            }
+            await _mediator.Send(new DeleteClaimCommand(id));
+            return Ok();
         }
     }
 }
