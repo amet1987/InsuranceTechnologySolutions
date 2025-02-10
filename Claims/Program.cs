@@ -1,10 +1,7 @@
 using System.Text.Json.Serialization;
-using Claims;
-using Claims.Auditing;
-using Claims.Controllers;
-using Microsoft.EntityFrameworkCore;
-using MongoDB.Bson.Serialization;
-using MongoDB.Driver;
+using Application.Extensions;
+using Claims.Middlewars;
+using Microsoft.OpenApi.Models;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,19 +14,24 @@ builder.Services
         x.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 
-builder.Services.AddDbContext<AuditContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-builder.Services.AddDbContext<ClaimsContext>(
-    options =>
-    {
-        var client = new MongoClient(builder.Configuration.GetConnectionString("MongoDb"));
-        var database = client.GetDatabase(builder.Configuration["MongoDb:DatabaseName"]);
-        options.UseMongoDB(database.Client, database.DatabaseNamespace.DatabaseName);
-    }
-);
+// Add Application Services
+builder.Services.AddApplicationServices(builder.Configuration);
+
+
+// Add Exception Handler
+builder.Services.AddExceptionHandler<ExceptionHandlingMiddleware>();
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Claim API",
+        Version = "v1",
+        Description = "Claim API for demo purpose"
+    });
+});
 
 var app = builder.Build();
 
@@ -40,17 +42,16 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseExceptionHandler(_ => { });
+
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
 app.MapControllers();
 
-using (var scope = app.Services.CreateScope())
-{
-    var context = scope.ServiceProvider.GetRequiredService<AuditContext>();
-    context.Database.Migrate();
-}
+// Apply DB Migration
+app.ApplyMigrations();
 
 app.Run();
 
